@@ -1,0 +1,21 @@
+#!/bin/bash 
+#PBS -N Environments
+#PBS -o /home/connor.bottrell/Scratch/pbs
+#PBS -e /home/connor.bottrell/Scratch/pbs
+#PBS -l select=1:ncpus=1:mem=16gb
+#PBS -l walltime=72:00:00
+#PBS -J 0-99:1
+#PBS -u bottrell
+#PBS -M connor.bottrell@ipmu.jp
+#PBS -m ae
+#PBS -V
+#PBS -q tiny
+
+source ~/.bash_profile
+conda activate tf39_cpu
+export SIM=TNG50-1
+export SNAP=$PBS_ARRAY_INDEX
+
+cd /lustre/work/connor.bottrell/Simulations/IllustrisTNG/Scripts/Schema
+
+python Environments_LOS.py $SIM $SNAP 
