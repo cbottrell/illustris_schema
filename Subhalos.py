@@ -11,43 +11,235 @@ def Subhalos_Catalogue(basePath,snap,mstar_lower=0,mstar_upper=np.inf,
     # convert to units used by TNG (1e10 Msun/h)
     mstar_lower = 10**(mstar_lower)/1e10*little_h
     mstar_upper = 10**(mstar_upper)/1e10*little_h
-    
-    fields = ['SubhaloMassType','SubhaloMassInRadType',
-              'SubhaloMassInHalfRadType',
-              'SubhaloFlag','SubhaloSFR',
-              'SubhaloSFRinHalfRad','SubhaloSFRinRad',
-              'SubhaloHalfmassRadType']
 
     ptNumStars = il.snapshot.partTypeNum('stars')
     ptNumGas = il.snapshot.partTypeNum('gas')
     ptNumDM = il.snapshot.partTypeNum('dm')
 
-    cat = il.groupcat.loadSubhalos(basePath,snap,fields=fields)
-    hdr = il.groupcat.loadHeader(basePath,snap)
-    redshift,a2 = hdr['Redshift'],hdr['Time']
-    subs = np.arange(cat['count'],dtype=int)
-    flags = cat['SubhaloFlag']
-    mstar = cat['SubhaloMassType'][:,ptNumStars]
-    cat['SubfindID'] = subs
-    cat['SnapNum'] = [snap for sub in subs]
-    subs = subs[(flags!=0)*(mstar>=mstar_lower)*(mstar<=mstar_upper)]
+    hdr = il.groupcat.loadHeader(basePath,snapnum)
+    redshift = hdr['Redshift']
+    a2 = hdr['Time']
+    boxsize = hdr['BoxSize']
 
-    cat['SubhaloHalfmassRadType_stars'] = cat['SubhaloHalfmassRadType'][:,ptNumStars]*a2/little_h
-    cat['SubhaloHalfmassRadType_gas'] = cat['SubhaloHalfmassRadType'][:,ptNumGas]*a2/little_h
-    cat['SubhaloHalfmassRadType_dm'] = cat['SubhaloHalfmassRadType'][:,ptNumDM]*a2/little_h
-    cat['SubhaloMassInRadType_stars'] = np.log10(cat['SubhaloMassInRadType'][:,ptNumStars]*1e10/little_h)
-    cat['SubhaloMassInRadType_gas'] = np.log10(cat['SubhaloMassInRadType'][:,ptNumGas]*1e10/little_h)
-    cat['SubhaloMassInRadType_dm'] = np.log10(cat['SubhaloMassInRadType'][:,ptNumDM]*1e10/little_h)
-    cat['SubhaloMassInHalfRadType_stars'] = np.log10(cat['SubhaloMassInHalfRadType'][:,ptNumStars]*1e10/little_h)
-    cat['SubhaloMassInHalfRadType_gas'] = np.log10(cat['SubhaloMassInHalfRadType'][:,ptNumGas]*1e10/little_h)
-    cat['SubhaloMassInHalfRadType_dm'] = np.log10(cat['SubhaloMassInHalfRadType'][:,ptNumDM]*1e10/little_h)
-    cat['SubhaloMassType_stars'] = np.log10(cat['SubhaloMassType'][:,ptNumStars]*1e10/little_h)
-    cat['SubhaloMassType_gas'] = np.log10(cat['SubhaloMassType'][:,ptNumGas]*1e10/little_h)
-    cat['SubhaloMassType_dm'] = np.log10(cat['SubhaloMassType'][:,ptNumDM]*1e10/little_h)
-    del cat['SubhaloMassType'], cat['SubhaloHalfmassRadType'], cat['SubhaloMassInRadType'], cat['SubhaloMassInHalfRadType'], cat['count']
-    cat = pd.DataFrame.from_dict(cat)
-    cat = cat.loc[subs]
-    return cat
+    # get subhalo info
+
+    subhalo_fields = [
+        'SubhaloFlag',
+        'SubhaloGrNr',
+        'SubhaloPos',
+        'SubhaloBHMass',
+        'SubhaloBHMdot',
+        'SubhaloMass',
+        'SubhaloMassType',
+        'SubhaloMassInRadType',
+        'SubhaloSFR',
+        'SubhaloSFRinHalfRad',
+        'SubhaloSFRinRad',
+        'SubhaloHalfmassRadType',
+        'SubhaloVel',
+        'SubhaloVelDisp',
+        'SubhaloVmax',
+        'SubhaloVmaxRad',
+    ]
+
+    subhalos = il.groupcat.loadSubhalos(basePath,snapnum,
+                                        fields=subhalo_fields)
+    nsubhalos = subhalos['count']
+    subfindids = np.arange(nsubhalos,dtype=int)
+    subhalos['SubhaloFlag'] = subhalos['SubhaloFlag'].astype(int)
+
+    # get group info
+
+    group_fields = [
+        'GroupFirstSub',
+        'GroupMassType',
+        'GroupNsubs',
+        'GroupCM',
+        'GroupPos',
+        'Group_M_Crit200',
+        'Group_M_Crit500',
+        'Group_R_Crit200',
+        'Group_R_Crit500',
+        'GroupVel',
+    ]
+
+    groups = il.groupcat.loadHalos(basePath,snapnum,
+                                   fields=group_fields)
+    central_msk = groups['GroupFirstSub']>=0
+    central_ids = groups['GroupFirstSub'][central_msk]
+
+    # make placeholders for group info in subhalo catalogue 
+    for group_field in group_fields:
+        dims = groups[group_field].shape
+        dtype = groups[group_field].dtype
+        if len(dims)>1:
+            dims = (nsubhalos,dims[-1])
+        else:
+            dims = (nsubhalos,)
+        subhalos[group_field]=np.zeros(dims).astype(dtype)
+
+    # central/satellite classification field
+    subhalos['GroupFirstSub'][central_ids] = 1
+
+    # add other group properties to subhalo catalogue
+    for subfindid in subfindids:
+        group_id = subhalos['SubhaloGrNr'][subfindid]
+        for group_field in group_fields[1:]:
+            subhalos[group_field][subfindid]=groups[group_field][subfindid]
+            
+    # split into x,y,z 
+    subhalos['SubhaloPos_X'] = subhalos['SubhaloPos'][:,0]*a2/little_h
+    subhalos['SubhaloPos_Y'] = subhalos['SubhaloPos'][:,1]*a2/little_h
+    subhalos['SubhaloPos_Z'] = subhalos['SubhaloPos'][:,2]*a2/little_h
+    subhalos['SubhaloVel_X'] = subhalos['SubhaloVel'][:,0]
+    subhalos['SubhaloVel_Y'] = subhalos['SubhaloVel'][:,1]
+    subhalos['SubhaloVel_Z'] = subhalos['SubhaloVel'][:,2]
+
+    # fillable arrays
+    subhalos['GroupVelDisp'] = np.zeros((nsubhalos,))
+    subhalos['GroupVelDispMassWeighted'] = np.zeros((nsubhalos,))
+    subhalos['GroupVelDisp_Z'] = np.zeros((nsubhalos,))
+    subhalos['GroupVelDispMassWeighted_Z'] = np.zeros((nsubhalos,))
+
+    # compute 3d position/velocity offsets for subhalos in each group
+    # also compute x,y position and los velocity wrt z axis
+    group_ids = np.arange(groups['count'])
+
+    for group_id in group_ids:
+
+        # bulk properties of group
+        group_coords = groups['GroupCM'][group_id]
+        group_vel = groups['GroupVel'][group_id]
+
+        # Use Pos and not CM for Subhalos due to numerical stripping
+        grsub_msk = (subhalos['SubhaloGrNr']==group_id)
+        rel_coords = subhalos['SubhaloPos'][grsub_msk] - group_coords
+        rel_vels = subhalos['SubhaloVel'][grsub_msk] - group_vel/a2
+
+        # apply periodic fix to coords
+        rel_coords[rel_coords>boxsize/2] -= boxsize
+        rel_coords[rel_coords<-boxsize/2] += boxsize
+
+        subhalos['SubhaloPos'][grsub_msk] = rel_coords
+        subhalos['SubhaloVel'][grsub_msk] = rel_vels
+
+        # compute velocity dispersion (+ mass weighted)
+        weights = subhalos['SubhaloMassInRadType'][grsub_msk,ptNumStars]
+
+        if np.sum(weights)>0.:
+            subhalos['GroupVelDisp'][grsub_msk] = np.sqrt(np.average(
+                np.sum(rel_vels**2,axis=1)))/np.sqrt(3)
+            subhalos['GroupVelDisp_Z'][grsub_msk] = np.std(
+                rel_vels,axis=0)[-1]
+            subhalos['GroupVelDispMassWeighted'][grsub_msk] = np.sqrt(
+                np.average(np.sum(rel_vels**2,axis=1),
+                           weights=weights))/np.sqrt(3)
+            subhalos['GroupVelDispMassWeighted_Z'][grsub_msk] = np.sqrt(
+                np.average(rel_vels**2,weights=weights,axis=0))[-1]
+        else:
+            # no subhalos with stars in group
+            subhalos['GroupVelDisp'][grsub_msk]=-1
+            subhalos['GroupVelDisp_Z'][grsub_msk]=-1
+            subhalos['GroupVelDispMassWeighted'][grsub_msk]=-1
+            subhalos['GroupVelDispMassWeighted_Z'][grsub_msk]=-1
+            
+    # split x,y,z in-group coordinates
+    subhalos['SubhaloPosInGroup_X'] = subhalos['SubhaloPos'][:,0]*a2/little_h
+    subhalos['SubhaloPosInGroup_Y'] = subhalos['SubhaloPos'][:,1]*a2/little_h
+    subhalos['SubhaloPosInGroup_Z'] = subhalos['SubhaloPos'][:,2]*a2/little_h
+    del subhalos['SubhaloPos']
+    subhalos['SubhaloVelInGroup_X'] = subhalos['SubhaloVel'][:,0]
+    subhalos['SubhaloVelInGroup_Y'] = subhalos['SubhaloVel'][:,1]
+    subhalos['SubhaloVelInGroup_Z'] = subhalos['SubhaloVel'][:,2]
+    del subhalos['SubhaloVel']
+
+    # update other fields to physical units
+    
+    subhalos['SubhaloBHMass'] = np.log10(subhalos[
+        'SubhaloBHMass']*1e10/little_h)
+    subhalos['SubhaloBHMdot'] = subhalos[
+        'SubhaloBHMdot']*1e10/0.978 # Msun/yr
+    
+    subhalos['SubhaloMass'] = np.log10(subhalos[
+        'SubhaloMass']*1e10/little_h)
+    subhalos['SubhaloMassType'] = np.log10(subhalos[
+        'SubhaloMassType']*1e10/little_h)
+    subhalos['SubhaloMassType_stars'] = subhalos[
+        'SubhaloMassType'][:,ptNumStars]
+    subhalos['SubhaloMassType_gas'] = subhalos[
+        'SubhaloMassType'][:,ptNumGas]
+    subhalos['SubhaloMassType_dm'] = subhalos[
+        'SubhaloMassType'][:,ptNumDM]
+    del subhalos['SubhaloMassType']
+    
+    subhalos['SubhaloMassInRadType'] = np.log10(subhalos[
+        'SubhaloMassInRadType']*1e10/little_h)
+    subhalos['SubhaloMassInRadType_stars'] = subhalos[
+        'SubhaloMassInRadType'][:,ptNumStars]
+    subhalos['SubhaloMassInRadType_gas'] = subhalos[
+        'SubhaloMassInRadType'][:,ptNumGas]
+    subhalos['SubhaloMassInRadType_dm'] = subhalos[
+        'SubhaloMassInRadType'][:,ptNumDM]
+    del subhalos['SubhaloMassInRadType']
+    
+    subhalos['SubhaloHalfmassRadType'] *= a2/little_h # kpc
+    subhalos['SubhaloHalfMassRadType_stars']=subhalos[
+        'SubhaloHalfmassRadType'][:,ptNumStars]
+    subhalos['SubhaloHalfmassRadType_gas']=subhalos[
+        'SubhaloHalfmassRadType'][:,ptNumGas]
+    subhalos['SubhaloHalfmassRadType_dm']=subhalos[
+        'SubhaloHalfmassRadType'][:,ptNumDM]
+    del subhalos['SubhaloHalfmassRadType']
+    
+    subhalos['SubhaloVmaxRad'] *= a2/little_h
+    
+    subhalos['GroupMassType'] = np.log10(subhalos[
+        'GroupMassType']*1e10/little_h)
+    subhalos['GroupMassType_stars']=subhalos[
+        'GroupMassType'][:,ptNumStars]
+    subhalos['GroupMassType_gas']=subhalos[
+        'GroupMassType'][:,ptNumGas]
+    subhalos['GroupMassType_dm']=subhalos[
+        'GroupMassType'][:,ptNumDM]
+    del subhalos['GroupMassType']
+    
+    subhalos['GroupCM'] = subhalos['GroupCM']*a2/little_h
+    subhalos['GroupCM_X'] = subhalos['GroupCM'][:,0]
+    subhalos['GroupCM_Y'] = subhalos['GroupCM'][:,1]
+    subhalos['GroupCM_Z'] = subhalos['GroupCM'][:,2]
+    del subhalos['GroupCM']
+    
+    subhalos['GroupPos'] = subhalos['GroupPos']*a2/little_h
+    subhalos['GroupPos_X'] = subhalos['GroupPos'][:,0]
+    subhalos['GroupPos_Y'] = subhalos['GroupPos'][:,1]
+    subhalos['GroupPos_Z'] = subhalos['GroupPos'][:,2]
+    del subhalos['GroupPos']
+    
+    subhalos['GroupVel']/=a2
+    subhalos['GroupVel_X']=subhalos['GroupVel'][:,0]
+    subhalos['GroupVel_Y']=subhalos['GroupVel'][:,1] 
+    subhalos['GroupVel_Z']=subhalos['GroupVel'][:,2]
+    del subhalos['GroupVel']
+    
+    subhalos['Group_M_Crit200'] = np.log10(subhalos[
+        'Group_M_Crit200']*1e10/little_h)
+    subhalos['Group_M_Crit500'] = np.log10(subhalos[
+        'Group_M_Crit500']*1e10/little_h)
+    subhalos['Group_R_Crit200'] = np.log10(subhalos[
+        'Group_R_Crit200']*a2/little_h)
+    subhalos['Group_R_Crit500'] = np.log10(subhalos[
+        'Group_R_Crit500']*a2/little_h)
+    del subhalos['count']
+    
+    # apply mass and cosmology flag cuts
+    mstar = subhalos['SubhaloMassType_stars']
+    flags = subhalos['SubhaloFlag']
+    subhalo_msk = (mstar>=mstar_lower)*(mstar<mstar_upper)*(flags==1)
+    for key in subhalos.keys():
+        subhalos[key] = subhalos[key][subhalo_msk]
+    del subhalos['SubhaloFlag']
+    
+    return subhalos
 
 def Subhalos_SQL(cat,sim,snap,
                  host='nantai.ipmu.jp',user='bottrell',
@@ -91,7 +283,7 @@ def main():
     from astropy.cosmology import Planck15 as cosmo
     
     sim,snap=sys.argv[1],int(sys.argv[2])
-    mstar_lower=10.
+    mstar_lower=9.
     
     basePath = f'/lustre/work/connor.bottrell/Simulations/IllustrisTNG/{sim}/output'
     catPath = f'/lustre/work/connor.bottrell/Simulations/IllustrisTNG/Scripts/Schema/Catalogues'
