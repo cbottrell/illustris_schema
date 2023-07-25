@@ -18,4 +18,4 @@ export SNAP=$PBS_ARRAY_INDEX
 
 cd /lustre/work/connor.bottrell/Simulations/IllustrisTNG/Scripts/Schema
 
-python Environments.py $SIM $SNAP 
+python Environments.py
