@@ -93,8 +93,6 @@ def Environment_Catalogue(basePath,massCatPath,sim,snap,axis,delv):
     mstar_lower and mstar_upper have log10(Mstar/Msun) units and are physical (i.e. Msun, not Msun/h). Requires that maximum masses have already been computed for every galaxy and are stored in the catalogues. These catalogues include masses for all subhalos with a stellar mass component.
     '''
     
-    df = pd.DataFrame()
-    
     little_h = cosmo.h
     ptNumStars = il.snapshot.partTypeNum('stars')
     ptNumGas = il.snapshot.partTypeNum('gas')
@@ -129,14 +127,16 @@ def Environment_Catalogue(basePath,massCatPath,sim,snap,axis,delv):
     
     # keep only subs in massmax catalogue
     # (i.e. flagged as cosmological and with stellar component)
-    cat_subs = massmax['SubhaloID']
+    cat_subs = massmax['SubfindID']
     cat_coords = cat_coords[cat_subs]
     cat_vels = cat_vels[cat_subs]
     cat_maxmass = massmax['MaxSubhaloMassType_stars'].values
     
+    records = []
+    
     for sub in db_subs:
         dbid = f'{snap}_{sub}'
-        mass_idx = massmax.SubhaloID==sub
+        mass_idx = massmax.SubfindID==sub
         mass_rec = massmax.loc[mass_idx]
         sub_coords = cat_coords[cat_subs==sub]
         sub_maxmass = mass_rec['MaxSubhaloMassType_stars'].values[0]
@@ -174,7 +174,7 @@ def Environment_Catalogue(basePath,massCatPath,sim,snap,axis,delv):
         los_vels = rel_vels[:,-1]
         print(np.median(np.abs(los_vels)))
         
-        for i,mu_min in zip(['Tiny','Minor','Major'],[0.01,0.10,0.25]):
+        for i,mu_min in zip(['Mini','Minor','Major'],[0.01,0.10,0.25]):
                 
             # find matches in mass ratio and cylinder
             idxs = mu>mu_min
@@ -252,9 +252,9 @@ def Environment_Catalogue(basePath,massCatPath,sim,snap,axis,delv):
                     r[f'MstarAbove{min_mass}_R{nn+1}'] = -1
                     r[f'MstarAbove{min_mass}_M{nn+1}_stars'] = -1
 
-        df = df.append(r,ignore_index=True)
+        records.append(r)
         
-    df = df.astype({'SnapNum': int,'SubfindID': int})    
+    df = pd.DataFrame(records)   
     return df
 
 def Environment_SQL(cat,sim,snap,
@@ -296,7 +296,8 @@ def Environment_SQL(cat,sim,snap,
     
 def main():
     
-    sim,snap=sys.argv[1],int(sys.argv[2])
+    sim = os.getenv('SIM')
+    snap = int(os.getenv('SNAP'))
     
     axis = 'v3' # z-axis
     delv = 1000 # km/s

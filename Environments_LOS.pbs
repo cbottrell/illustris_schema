@@ -13,9 +13,9 @@
 
 source ~/.bash_profile
 conda activate tf39_cpu
-export SIM=TNG50-1
+export SIM=TNG100-1
 export SNAP=$PBS_ARRAY_INDEX
 
 cd /lustre/work/connor.bottrell/Simulations/IllustrisTNG/Scripts/Schema
 
-python Environments_LOS.py $SIM $SNAP 
+python Environments_LOS.py
